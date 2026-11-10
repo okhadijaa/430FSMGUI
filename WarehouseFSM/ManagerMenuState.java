@@ -1,54 +1,142 @@
+import java.awt.BorderLayout;
+import java.awt.GridLayout;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import javax.swing.JButton;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
+
 public class ManagerMenuState extends WarehouseState {
     private static ManagerMenuState state;
+    private final JPanel panel;
+    private final JTextArea displayArea;
 
-    private ManagerMenuState() { }
+    private ManagerMenuState() {
+        panel = new JPanel(new BorderLayout());
+
+        JPanel buttonPanel = new JPanel(new GridLayout(3, 2, 5, 5));
+        JButton addProductBtn = new JButton("Add Product");
+        JButton showWaitlistBtn = new JButton("Show Waitlist");
+        JButton receiveShipmentBtn = new JButton("Receive Shipment");
+        JButton becomeClerkBtn = new JButton("Become Clerk");
+        JButton logoutBtn = new JButton("Logout");
+
+        displayArea = new JTextArea(15, 40);
+        displayArea.setEditable(false);
+
+        // Dedicated action listener classes
+        addProductBtn.addActionListener(new AddProductAction());
+        showWaitlistBtn.addActionListener(new ShowWaitlistAction());
+        receiveShipmentBtn.addActionListener(new ReceiveShipmentAction());
+        becomeClerkBtn.addActionListener(new BecomeClerkAction());
+        logoutBtn.addActionListener(new LogoutAction());
+
+        buttonPanel.add(addProductBtn);
+        buttonPanel.add(showWaitlistBtn);
+        buttonPanel.add(receiveShipmentBtn);
+        buttonPanel.add(becomeClerkBtn);
+        buttonPanel.add(logoutBtn);
+
+        panel.add(buttonPanel, BorderLayout.NORTH);
+        panel.add(new JScrollPane(displayArea), BorderLayout.CENTER);
+    }
 
     public static ManagerMenuState instance() {
-        if (state == null) state = new ManagerMenuState();
+        if (state == null) {
+            state = new ManagerMenuState();
+        }
         return state;
     }
 
     @Override
-    public void run() {
-        System.out.println("\n========== MANAGER MENU ==========");
-        System.out.println("1. Add Product");
-        System.out.println("2. Display Product Waitlist");
-        System.out.println("3. Receive Shipment");
-        System.out.println("4. Become Clerk");
-        System.out.println("5. Logout");
+    public JPanel getView() {
+        displayArea.setText("");
+        return panel;
+    }
 
-        switch (context().getCommand(5)) {
-            case 1: addProduct(); break;
-            case 2: warehouse().displayWaitlist(context().getId("Enter Product ID:")); break;
-            case 3: receiveShipment(); break;
-            case 4: changeState(WarehouseContext.BECOME_CLERK); break;
-            case 5: changeState(WarehouseContext.LOGOUT); break;
-            default: break;
+    // --- Dedicated Listener Classes ---
+
+    private class AddProductAction implements ActionListener {
+        @Override
+        public void actionPerformed(ActionEvent e) {
+            String name = JOptionPane.showInputDialog(panel, "Enter Product Name:");
+            if (name == null || name.trim().isEmpty()) return;
+            String qtyStr = JOptionPane.showInputDialog(panel, "Enter Initial Stock Quantity:");
+            if (qtyStr == null || qtyStr.trim().isEmpty()) return;
+            String priceStr = JOptionPane.showInputDialog(panel, "Enter Unit Price:");
+            if (priceStr == null || priceStr.trim().isEmpty()) return;
+
+            try {
+                int qty = Integer.parseInt(qtyStr.trim());
+                double price = Double.parseDouble(priceStr.trim());
+                Product p = warehouse.addProduct(name.trim(), qty, price);
+                if (p != null) {
+                    displayArea.setText("Product added successfully:\n" + p);
+                } else {
+                    displayArea.setText("Failed to add product. Check input values.");
+                }
+            } catch (NumberFormatException ex) {
+                JOptionPane.showMessageDialog(panel, "Invalid quantity or price format.");
+            }
         }
     }
 
-    private void addProduct() {
-        String name = context().getToken("Enter Product Name:");
-        int quantity = context().getNonNegativeNumber("Initial quantity:");
-        double price = context().getDouble("Unit price:");
-        Product product = warehouse().addProduct(name, quantity, price);
-        System.out.println(product == null ? "Product could not be added." : "Created: " + product);
+    private class ShowWaitlistAction implements ActionListener {
+        @Override
+        public void actionPerformed(ActionEvent e) {
+            String pId = JOptionPane.showInputDialog(panel, "Enter Product ID:");
+            if (pId == null || pId.trim().isEmpty()) return;
+
+            Product p = warehouse.searchProduct(pId.trim());
+            if (p == null) {
+                displayArea.setText("Product not found: " + pId);
+                return;
+            }
+
+            displayArea.setText("=== Waitlist for Product " + pId.trim() + " (" + p.getProductName() + ") ===\n");
+            displayArea.append("Total Outstanding Waitlist Quantity: " 
+                + warehouse.getOutstandingQuantity(pId.trim()) + "\n");
+        }
     }
 
-    private void receiveShipment() {
-        String id = context().getId("Enter Product ID:");
-        if (warehouse().searchProduct(id) == null) {
-            System.out.println("Product not found.");
-            return;
+    private class ReceiveShipmentAction implements ActionListener {
+        @Override
+        public void actionPerformed(ActionEvent e) {
+            String pId = JOptionPane.showInputDialog(panel, "Enter Product ID:");
+            if (pId == null || pId.trim().isEmpty()) return;
+            String qtyStr = JOptionPane.showInputDialog(panel, "Enter Shipment Quantity Received:");
+            if (qtyStr == null || qtyStr.trim().isEmpty()) return;
+
+            try {
+                int qty = Integer.parseInt(qtyStr.trim());
+                int res = warehouse.receiveShipment(pId.trim(), qty);
+                if (res == Warehouse.OPERATION_COMPLETED) {
+                    Product p = warehouse.searchProduct(pId.trim());
+                    displayArea.setText("Shipment processed for " + pId.trim() + ".\n"
+                        + "Updated Product Stock: " + p.getQuantity() + "\n"
+                        + "Remaining Waitlist: " + warehouse.getOutstandingQuantity(pId.trim()));
+                } else {
+                    displayArea.setText("Shipment failed. Please verify product ID and positive quantity.");
+                }
+            } catch (NumberFormatException ex) {
+                JOptionPane.showMessageDialog(panel, "Invalid shipment quantity.");
+            }
         }
-        int quantity = context().getPositiveNumber("Shipment quantity:");
-        int result = warehouse().receiveShipment(id, quantity);
-        if (result == Warehouse.OPERATION_COMPLETED) {
-            System.out.println("Shipment received. Waitlisted orders fulfilled first.");
-            System.out.println("Stock on hand: " + warehouse().searchProduct(id).getQuantity());
-            System.out.println("Still waitlisted: " + warehouse().getOutstandingQuantity(id));
-        } else {
-            System.out.println("Shipment failed.");
+    }
+
+    private static class BecomeClerkAction implements ActionListener {
+        @Override
+        public void actionPerformed(ActionEvent e) {
+            WarehouseContext.instance().changeState(WarehouseContext.BECOME_CLERK);
+        }
+    }
+
+    private static class LogoutAction implements ActionListener {
+        @Override
+        public void actionPerformed(ActionEvent e) {
+            WarehouseContext.instance().changeState(WarehouseContext.LOGOUT);
         }
     }
 }
