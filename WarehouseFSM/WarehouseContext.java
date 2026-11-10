@@ -34,6 +34,7 @@ public class WarehouseContext {
     private final WarehouseState[] states;
     private int currentState;
     private int previousState; // Remembers whether Client was launched from LOGIN or CLERK
+    private int clerkReturnState = LOGIN_STATE; //remembers where Clerk came from 
     private String currentClientID;
 
     private WarehouseContext() {
@@ -85,22 +86,49 @@ public class WarehouseContext {
         return previousState;
     }
 
+    
     // Coordinates the FSM transitions using the matrix
     public void changeState(int transition) {
         int next;
 
-        // Logout from client state dynamically returns to either Clerk or Login
+        //client logout returns to Clerk or Login
         if (currentState == CLIENT_STATE && transition == LOGOUT) {
             next = previousState;
+
+        //clerk logout returns to Manager or Login
+        } else if (currentState == CLERK_STATE && transition == LOGOUT) {
+            next = clerkReturnState;
+
         } else {
             next = transitionTable[currentState][transition];
         }
 
         if (next != -1) {
+
+            //remembers where Client came from
             if (currentState == CLERK_STATE && transition == BECOME_CLIENT) {
                 previousState = CLERK_STATE;
+
             } else if (currentState == LOGIN_STATE && transition == CLIENT_LOGIN) {
                 previousState = LOGIN_STATE;
+            }
+
+            //remembers where Clerk came from
+            if (currentState == MANAGER_STATE && transition == BECOME_CLERK) {
+                clerkReturnState = MANAGER_STATE;
+
+            } else if (currentState == LOGIN_STATE && transition == CLERK_LOGIN) {
+                clerkReturnState = LOGIN_STATE;
+            }
+
+            //reset Clerk's return state after logout
+            if (currentState == CLERK_STATE && transition == LOGOUT) {
+                clerkReturnState = LOGIN_STATE;
+            }
+
+            //clear selected Client after logout
+            if (currentState == CLIENT_STATE && transition == LOGOUT) {
+                currentClientID = null;
             }
 
             currentState = next;
