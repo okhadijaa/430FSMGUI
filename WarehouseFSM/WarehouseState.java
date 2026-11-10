@@ -1,15 +1,8 @@
+import javax.swing.JPanel;
+
 public abstract class WarehouseState {
-    public abstract void run();
+    protected static Warehouse warehouse = Warehouse.instance();
 
-    protected WarehouseContext context() {
-        return WarehouseContext.instance();
-    }
-
-    protected Warehouse warehouse() {
-        return context().getWarehouse();
-    }
-
-    protected void changeState(int event) {
-        context().changeState(event);
-    }
+    // Returns the GUI panel for this state to display in the main window
+    public abstract JPanel getView();
 }
