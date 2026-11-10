@@ -1,56 +1,61 @@
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.util.Locale;
-import java.util.NoSuchElementException;
+import java.awt.BorderLayout;
+import javax.swing.JFrame;
+import javax.swing.JPanel;
 
 public class WarehouseContext {
+    private static WarehouseContext context;
+    private static Warehouse warehouse;
+    private final JFrame frame;
 
-    public static final int LOGIN = 0;
-    public static final int CLIENT = 1;
-    public static final int CLERK = 2;
-    public static final int MANAGER = 3;
-    private static final int EXIT = 4;
+    // --- State Identifiers (Rows in Matrix) ---
+    public static final int LOGIN_STATE = 0;
+    public static final int CLERK_STATE = 1;
+    public static final int MANAGER_STATE = 2;
+    public static final int CLIENT_STATE = 3;
+    public static final int NUM_STATES = 4;
 
-    public static final int LOGIN_CLIENT = 0;
-    public static final int LOGIN_CLERK = 1;
-    public static final int LOGIN_MANAGER = 2;
+    // --- Event / Transition Identifiers (Columns in Matrix) ---
+    public static final int CLERK_LOGIN = 0;
+    public static final int MANAGER_LOGIN = 1;
+    public static final int CLIENT_LOGIN = 2;
     public static final int BECOME_CLIENT = 3;
     public static final int BECOME_CLERK = 4;
     public static final int LOGOUT = 5;
-    public static final int QUIT = 6;
+    public static final int NUM_TRANSITIONS = 6;
 
-    private static final int INVALID = -1;
-    private static final int RETURN = -2;
-
-
-    private static final int[][] MATRIX = {
-        /* LOGIN   */     { CLIENT,    CLERK,     MANAGER,     INVALID,      INVALID,    INVALID, EXIT },
-        /* CLIENT  */     { INVALID,   INVALID,   INVALID,     INVALID,      INVALID,    RETURN,  INVALID },
-        /* CLERK   */     { INVALID,   INVALID,   INVALID,     CLIENT,       INVALID,    RETURN,  INVALID },
-        /* MANAGER */     { INVALID,   INVALID,   INVALID,     INVALID,      CLERK,      LOGIN,   INVALID }
+    // --- Transition Matrix: [CurrentState][Event] -> NextState (-1 means invalid) ---
+    private static final int[][] transitionTable = {
+        /* Row 0: LOGIN_STATE   */ { CLERK_STATE, MANAGER_STATE, CLIENT_STATE, -1,           -1,          -1 },
+        /* Row 1: CLERK_STATE   */ { -1,          -1,            -1,           CLIENT_STATE, -1,          LOGIN_STATE },
+        /* Row 2: MANAGER_STATE */ { -1,          -1,            -1,           -1,           CLERK_STATE, LOGIN_STATE },
+        /* Row 3: CLIENT_STATE  */ { -1,          -1,            -1,           -1,           -1,          -1 /* Handled dynamically */ }
     };
 
-    private static WarehouseContext context;
     private final WarehouseState[] states;
-    private final BufferedReader reader;
     private int currentState;
-    private int previousState;     
-    private int clerkReturnState;  
+    private int previousState; // Remembers whether Client was launched from LOGIN or CLERK
     private String currentClientID;
 
     private WarehouseContext() {
-        states = new WarehouseState[] {
-            LoginState.instance(),
-            ClientMenuState.instance(),
-            ClerkMenuState.instance(),
-            ManagerMenuState.instance()
-        };
-        reader = new BufferedReader(new InputStreamReader(System.in));
-        currentState = LOGIN;
-        previousState = LOGIN;
-        clerkReturnState = LOGIN;
+        warehouse = Warehouse.instance();
+        
+        frame = new JFrame("Warehouse Management System");
+        frame.setSize(750, 520);
+        frame.setLocationRelativeTo(null);
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+
+        states = new WarehouseState[NUM_STATES];
+        states[LOGIN_STATE] = LoginState.instance();
+        states[CLERK_STATE] = ClerkMenuState.instance();
+        states[MANAGER_STATE] = ManagerMenuState.instance();
+        states[CLIENT_STATE] = ClientMenuState.instance();
+
+        previousState = LOGIN_STATE;
+        currentState = LOGIN_STATE;
+
+        frame.getContentPane().setLayout(new BorderLayout());
+        setPanel(states[currentState].getView());
+        frame.setVisible(true);
     }
 
     public static WarehouseContext instance() {
@@ -60,165 +65,58 @@ public class WarehouseContext {
         return context;
     }
 
-    public Warehouse getWarehouse() {
-        return Warehouse.instance();
+    public JFrame getFrame() {
+        return frame;
+    }
+
+    public void setClient(String cId) {
+        this.currentClientID = cId;
     }
 
     public String getClient() {
         return currentClientID;
     }
 
-    public void setClient(String clientId) {
-        currentClientID = clientId;
+    public void setPreviousState(int s) {
+        this.previousState = s;
     }
 
     public int getPreviousState() {
         return previousState;
     }
 
-    public void setPreviousState(int state) {
-        previousState = state;
-    }
+    // Coordinates the FSM transitions using the matrix
+    public void changeState(int transition) {
+        int next;
 
-    public int getCurrentState() {
-        return currentState;
-    }
-
-    public void changeState(int event) {
-        if (event < 0 || event >= MATRIX[currentState].length) {
-            System.out.println("Unknown transition.");
-            return;
-        }
-        int next = MATRIX[currentState][event];
-        if (next == INVALID) {
-            System.out.println("Transition not allowed from this menu.");
-            return;
-        }
-        if (next == RETURN) {
-            next = (currentState == CLIENT) ? previousState : clerkReturnState;
-        }
-
-        if (event == LOGIN_CLIENT || event == BECOME_CLIENT) {
-            previousState = currentState;
-        }
-        if (event == LOGIN_CLERK || event == BECOME_CLERK) {
-            clerkReturnState = currentState;
-        }
-        if (currentState == CLIENT && event == LOGOUT) {
-            currentClientID = null;
-            previousState = LOGIN;
-        }
-        if (currentState == CLERK && event == LOGOUT) {
-            clerkReturnState = LOGIN;
-        }
-        if (next == LOGIN) {
-            currentClientID = null;
-        }
-        currentState = next;
-    }
-
-    public String getToken(String prompt) {
-        while (true) {
-            System.out.print(prompt + " ");
-            try {
-                String line = reader.readLine();
-                if (line == null) {
-                    throw new NoSuchElementException("End of input");
-                }
-                if (!line.trim().isEmpty()) {
-                    return line.trim();
-                }
-            } catch (IOException e) {
-                throw new NoSuchElementException("Input error: " + e.getMessage());
-            }
-            System.out.println("Input cannot be blank.");
-        }
-    }
-
-    public String getId(String prompt) {
-        return getToken(prompt).toUpperCase(Locale.ROOT);
-    }
-
-    public int getNumber(String prompt) {
-        while (true) {
-            try {
-                return Integer.parseInt(getToken(prompt));
-            } catch (NumberFormatException e) {
-                System.out.println("Please enter a whole number.");
-            }
-        }
-    }
-
-    public int getNonNegativeNumber(String prompt) {
-        while (true) {
-            int number = getNumber(prompt);
-            if (number >= 0) return number;
-            System.out.println("Number cannot be negative.");
-        }
-    }
-
-    public int getPositiveNumber(String prompt) {
-        while (true) {
-            int number = getNumber(prompt);
-            if (number > 0) return number;
-            System.out.println("Number must be greater than zero.");
-        }
-    }
-
-    public double getDouble(String prompt) {
-        while (true) {
-            try {
-                double number = Double.parseDouble(getToken(prompt));
-                if (Double.isFinite(number) && number >= 0) return number;
-            } catch (NumberFormatException e) {
-            }
-            System.out.println("Enter a finite, non-negative amount.");
-        }
-    }
-
-    public int getCommand(int max) {
-        while (true) {
-            int option = getNumber("Choose option (1-" + max + "):");
-            if (option >= 1 && option <= max) return option;
-            System.out.println("Invalid option.");
-        }
-    }
-
-    public boolean yesOrNo(String prompt) {
-        String answer = getToken(prompt + " (Y/N):");
-        return answer.equalsIgnoreCase("y") || answer.equalsIgnoreCase("yes");
-    }
-
-    public void saveData() {
-        System.out.println(Warehouse.save() ? "Data saved." : "Save failed.");
-    }
-
-    public void loadData() {
-        if (!new File("WarehouseData").isFile()) {
-            System.out.println("No saved WarehouseData file was found.");
-        } else if (Warehouse.retrieve() == null) {
-            System.out.println("Load failed.");
+        // Logout from client state dynamically returns to either Clerk or Login
+        if (currentState == CLIENT_STATE && transition == LOGOUT) {
+            next = previousState;
         } else {
-            System.out.println("Saved warehouse data loaded.");
+            next = transitionTable[currentState][transition];
+        }
+
+        if (next != -1) {
+            if (currentState == CLERK_STATE && transition == BECOME_CLIENT) {
+                previousState = CLERK_STATE;
+            } else if (currentState == LOGIN_STATE && transition == CLIENT_LOGIN) {
+                previousState = LOGIN_STATE;
+            }
+
+            currentState = next;
+            setPanel(states[currentState].getView());
         }
     }
 
-    public void process() {
-        System.out.println("WAREHOUSE FINITE STATE MACHINE");
-        while (currentState != EXIT) {
-            try {
-                states[currentState].run();
-            } catch (NoSuchElementException e) {
-                System.out.println("Input closed; exiting.");
-                break;
-            } catch (IllegalArgumentException | ArithmeticException e) {
-                System.out.println("Operation failed: " + e.getMessage());
-            }
-        }
-        System.out.println("Warehouse program ended.");
+    // Replaces the content pane of the JFrame with the current state's JPanel
+    private void setPanel(JPanel panel) {
+        frame.getContentPane().removeAll();
+        frame.getContentPane().add(panel, BorderLayout.CENTER);
+        frame.revalidate();
+        frame.repaint();
     }
 
     public static void main(String[] args) {
-        WarehouseContext.instance().process();
+        WarehouseContext.instance();
     }
 }
